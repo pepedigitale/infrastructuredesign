@@ -47,8 +47,112 @@ def build_infra_graph(edgesDf: pd.DataFrame) -> nx.Graph:
                     length=row["length"], edge_id=edge_id)
     return IG
 
+def extract_chains2(IG: nx.Graph, nodesDf: pd.DataFrame):
+    """
+    Returns
+        chains: {(start_boundary, end_boundary): [path]}
+        boundary_nodes: set
 
+    A chain is a simple path between two boundary nodes (degree >= 3 or degree == 1).
+    Chains are stored in the direction in which they are discovered.
+    If multiple physical paths connect the same pair of boundaries,
+    they are all stored.
+    """
+
+    from collections import defaultdict
+
+    boundary_nodes = {
+        n for n, d in IG.degree()
+        if d >= 3 or d == 1
+    }
+
+    chains = defaultdict(list)
+
+    for start in boundary_nodes:
+
+        for nbr in IG.neighbors(start):
+
+            path = [start, nbr]
+            prev, curr = start, nbr
+
+            while curr not in boundary_nodes:
+
+                nxts = [x for x in IG.neighbors(curr) if x != prev]
+
+                if len(nxts) == 0:
+                    break
+
+                if len(nxts) > 1:
+                    raise RuntimeError(
+                        f"Unexpected branch inside chain at {curr}: {nxts}"
+                    )
+
+                prev, curr = curr, nxts[0]
+                path.append(curr)
+
+            if curr in boundary_nodes:
+                chains[(start, curr)].append(path)
+
+    return dict(chains), boundary_nodes
     
+
+def extract_chains3(IG: nx.Graph):
+    """
+    Returns
+        chains: {(start_boundary, end_boundary): [ordered list of nodes]}
+        boundary_nodes: set
+
+    A chain is a simple path between two adjacent boundary nodes
+    (boundary = degree >= 3 or degree == 1).
+
+    Keys are directional: (A,B) and (B,A) are different keys only if they
+    correspond to different physical corridors. Reversing an already
+    discovered chain is NOT added.
+    """
+
+    boundary_nodes = {
+        n for n, d in IG.degree()
+        if d >= 3 or d == 1
+    }
+
+    chains = {}
+    visited_edges = set()
+
+    for start in boundary_nodes:
+
+        for nbr in IG.neighbors(start):
+
+            edge = frozenset((start, nbr))
+            if edge in visited_edges:
+                continue
+
+            path = [start, nbr]
+            visited_edges.add(edge)
+
+            prev, curr = start, nbr
+
+            while curr not in boundary_nodes:
+
+                nxts = [x for x in IG.neighbors(curr) if x != prev]
+
+                if len(nxts) != 1:
+                    raise RuntimeError(
+                        f"Unexpected branching at non-boundary node {curr}"
+                    )
+
+                nxt = nxts[0]
+
+                visited_edges.add(frozenset((curr, nxt)))
+                path.append(nxt)
+
+                prev, curr = curr, nxt
+
+            # curr is the boundary reached
+            chains[(start, curr)] = path
+
+    return chains, boundary_nodes
+
+
 def extract_chains(IG: nx.Graph, nodesDf: pd.DataFrame) -> dict:
     """
     Returns

@@ -225,13 +225,71 @@ def propagate(G: nx.DiGraph, perturbations: dict | None = None) -> nx.DiGraph:
 
     return G_real
 
+def propagate2(
+    G: nx.DiGraph,
+    edge_perturbations: dict | None = None,
+    node_perturbations: dict | None = None,
+) -> nx.DiGraph:
+    """
+    Propagate delays through an EAN.
+
+    Parameters
+    ----------
+    G : nx.DiGraph
+        Scheduled EAN. Nodes have attributes including 'scheduled_time';
+        edges have a 'min_duration' attribute.
+
+    edge_perturbations : dict, optional
+        {(u, v): extra_seconds} added to the corresponding edge duration.
+
+    node_perturbations : dict, optional
+        {node: extra_seconds} added to the realized time of that event.
+
+    Returns
+    -------
+    nx.DiGraph
+        A copy of G with node attribute 'time' updated to the realized times.
+    """
+
+    edge_perturbations = edge_perturbations or {}
+    node_perturbations = node_perturbations or {}
+
+    G_real = G.copy()
+    realized = {}
+
+    for node in nx.topological_sort(G_real):
+
+        preds = list(G_real.predecessors(node))
+
+        # Source events (no predecessors)
+        if not preds:
+            candidate = G_real.nodes[node]["scheduled_time"]
+        else:
+            candidate = max(
+                realized[p]
+                + G_real.edges[p, node]["min_duration"]
+                + edge_perturbations.get((p, node), 0.0)
+                for p in preds
+            )
+
+        # External delay at this event
+        candidate += node_perturbations.get(node, 0.0)
+
+        # No event may occur before its scheduled time
+        realized[node] = max(candidate, G_real.nodes[node]["scheduled_time"])
+
+    # Update realized times
+    nx.set_node_attributes(G_real, realized, "time")
+
+    return G_real
+
 # --------------------------------------------------------------------------
 # 5. Find out at what times which trains traverse chain boundaries (rank >= 3)
 # --------------------------------------------------------------------------
 
 from datetime import timedelta
 
-def enrich_trip_data_with_boundaries(trip_data, routes, nodesDf, chains):
+def enrich_trip_data_with_boundaries(trip_data, routes, nodesDf, boundary_nodes):
     """
     Return a copy of trip_data where every train additionally contains
     interpolated timestamps at chain boundary nodes (rank >= 3).
@@ -251,19 +309,12 @@ def enrich_trip_data_with_boundaries(trip_data, routes, nodesDf, chains):
         Must contain column 'pk_rel'.
 
     chains : dict
-        Output of extract_chains().
+        Output of enrich_trip_data_with_boundarieschains().
 
     Returns
     -------
     enriched_trip_data : dict
     """
-
-    # All chain boundary nodes
-    boundary_nodes = {
-        node
-        for chain in chains.keys()
-        for node in chain
-    }
 
     enriched = {}
 
