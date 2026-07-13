@@ -72,7 +72,8 @@ def build_ean(trip_data: dict) -> nx.DiGraph:
                     event="arr",
                     seq=i,
                     time=arr_sec,
-                    scheduled_time=0
+                    scheduled_time=0,
+                    is_stop=is_stop
                 )
                 arr_nodes[i] = arr_node
 
@@ -86,7 +87,8 @@ def build_ean(trip_data: dict) -> nx.DiGraph:
                     event="dep",
                     seq=i,
                     time=dep_sec,
-                    scheduled_time=0
+                    scheduled_time=0,
+                    is_stop=is_stop
                 )
 
                 if is_stop:
