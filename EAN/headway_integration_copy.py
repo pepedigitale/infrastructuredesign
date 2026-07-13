@@ -421,3 +421,117 @@ def assemble_headway_constraints(trip_data: dict, trip_data_enriched: dict, rout
               f"-- inspect `skipped` for details (unmatched chains/categories).")
 
     return constraints, skipped
+
+import numpy as np
+
+
+def generate_perturbation_scenarios(
+    G,
+    n_scenarios=5,
+    entry_delay_mean=300,
+    entry_delay_std=60,
+    running_delay_mean=0,
+    running_delay_std=60,
+    seed=None,
+):
+    """
+    Generate random node and edge perturbation scenarios.
+
+    Parameters
+    ----------
+    G : nx.DiGraph
+        Scheduled event-activity network.
+
+    n_scenarios : int
+        Number of perturbation scenarios to generate.
+
+    entry_delay_mean : float
+        Mean entry delay (s).
+
+    entry_delay_std : float
+        Standard deviation of entry delay (s).
+
+    running_delay_mean : float
+        Mean running-edge perturbation (s).
+
+    running_delay_std : float
+        Standard deviation of running-edge perturbation (s).
+
+    seed : int or None
+        Random seed.
+
+    Returns
+    -------
+    node_perturbations : list[dict]
+        One dictionary per scenario:
+        {entry_node: delay}
+
+    edge_perturbations : list[dict]
+        One dictionary per scenario:
+        {(u, v): delay}
+    """
+
+    rng = np.random.default_rng(seed)
+
+    node_perturbations = []
+    edge_perturbations = []
+
+    # --------------------------------------------------
+    # Identify first departure node of each train
+    # --------------------------------------------------
+
+    entry_nodes = []
+
+    trains = {
+        data["train"]
+        for _, data in G.nodes(data=True)
+        if "train" in data
+    }
+
+    for train in trains:
+
+        dep_nodes = [
+            n
+            for n, data in G.nodes(data=True)
+            if data.get("train") == train
+            and data.get("event") == "dep"
+            and data.get("is_stop")
+        ]
+
+        if dep_nodes:
+            first_dep = min(
+                dep_nodes,
+                key=lambda n: G.nodes[n]["time"]
+            )
+            entry_nodes.append(first_dep)
+
+    # --------------------------------------------------
+    # Running edges
+    # --------------------------------------------------
+
+    running_edges = [
+        (u, v)
+        for u, v, data in G.edges(data=True)
+        if data["kind"] == "running"
+    ]
+
+    # --------------------------------------------------
+    # Generate scenarios
+    # --------------------------------------------------
+
+    for _ in range(n_scenarios):
+
+        node_delay = {
+            node: max(0, rng.normal(entry_delay_mean, entry_delay_std))
+            for node in entry_nodes
+        }
+
+        edge_delay = {
+            edge: max(0, rng.normal(running_delay_mean, running_delay_std))
+            for edge in running_edges
+        }
+
+        node_perturbations.append(node_delay)
+        edge_perturbations.append(edge_delay)
+
+    return node_perturbations, edge_perturbations
